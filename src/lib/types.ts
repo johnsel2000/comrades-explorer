@@ -8,6 +8,10 @@ export interface Stats {
   countries: number;
   clubs: number;
   yearRange: [number, number];
+  maleAthletes: number;
+  femaleAthletes: number;
+  maleFinishes: number;
+  femaleFinishes: number;
 }
 
 export interface YearData {
@@ -16,6 +20,9 @@ export interface YearData {
   totalEntries: number;
   medals: Record<string, number>;
   winner?: { name: string; time: string };
+  winnerWomen?: { name: string; time: string };
+  maleFinishers?: number;
+  femaleFinishers?: number;
   date?: string;
   weather?: string;
   direction?: string;
@@ -37,6 +44,7 @@ export interface LeaderboardRunner {
   firstYear: number;
   lastYear: number;
   bestMedal: string;
+  gender: string;
 }
 
 export interface FastestTime {
@@ -63,13 +71,15 @@ export interface TopCountry {
 
 export interface Leaderboards {
   mostFinishes: LeaderboardRunner[];
+  mostFinishesWomen: LeaderboardRunner[];
   fastestTimes: FastestTime[];
+  fastestTimesWomen: FastestTime[];
   topClubs: TopClub[];
   topCountries: TopCountry[];
 }
 
-// Search index: [name, athleteId, finishes, firstYear, lastYear, bestMedalCode]
-export type SearchEntry = [string, string, number, number, number, string];
+// Search index: [name, athleteId, finishes, firstYear, lastYear, bestMedalCode, gender]
+export type SearchEntry = [string, string, number, number, number, string, string];
 
 export interface RunnerRace {
   year: number;
@@ -86,6 +96,7 @@ export interface RunnerRace {
 
 export interface RunnerData {
   name: string;
+  gender: string;
   races: RunnerRace[];
 }
 

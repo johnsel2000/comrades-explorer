@@ -17,6 +17,95 @@ from pathlib import Path
 
 logger = logging.getLogger("export_data")
 
+
+# ---------------------------------------------------------------------------
+# Gender classification
+# ---------------------------------------------------------------------------
+
+def classify_genders(conn: sqlite3.Connection) -> dict[str, str]:
+    """
+    Classify athletes as Male (M) or Female (F) using the gender_pos field.
+
+    Algorithm: For each athlete with position data, the ratio gender_pos/pos
+    reveals their gender. Males have gender_pos close to pos (ratio > 0.55),
+    females have gender_pos much less than pos (ratio < 0.35) since women are
+    a smaller fraction of the field. We vote across all years and take majority.
+
+    For athletes with pos <= 10, use exact matching: if gender_pos == pos, male;
+    if gender_pos < pos, female.
+
+    Athletes who only ran pre-1975 (before women were allowed) are classified male.
+
+    Returns dict mapping UPPER(athlete_id) -> 'M' or 'F'.
+    """
+    logger.info("Classifying athlete genders...")
+
+    athlete_votes: dict[str, dict] = {}  # aid -> {'M': int, 'F': int}
+
+    # Strategy 1: Ratio-based for pos > 10
+    rows = conn.execute("""
+        SELECT UPPER(athlete_id), CAST(pos AS INTEGER), CAST(gender_pos AS INTEGER)
+        FROM results
+        WHERE pos != '' AND gender_pos != ''
+        AND CAST(pos AS INTEGER) > 10
+        AND pos IS NOT NULL AND gender_pos IS NOT NULL AND athlete_id IS NOT NULL
+    """).fetchall()
+
+    for aid, pos, gp in rows:
+        if pos == 0:
+            continue
+        ratio = gp / pos
+        if aid not in athlete_votes:
+            athlete_votes[aid] = {'M': 0, 'F': 0}
+        if ratio < 0.35:
+            athlete_votes[aid]['F'] += 1
+        elif ratio > 0.55:
+            athlete_votes[aid]['M'] += 1
+
+    # Strategy 2: Top-10 runners (pos <= 10)
+    rows = conn.execute("""
+        SELECT UPPER(athlete_id), CAST(pos AS INTEGER), CAST(gender_pos AS INTEGER)
+        FROM results
+        WHERE pos != '' AND gender_pos != ''
+        AND CAST(pos AS INTEGER) <= 10 AND CAST(pos AS INTEGER) > 0
+        AND pos IS NOT NULL AND gender_pos IS NOT NULL AND athlete_id IS NOT NULL
+    """).fetchall()
+
+    for aid, pos, gp in rows:
+        if aid not in athlete_votes:
+            athlete_votes[aid] = {'M': 0, 'F': 0}
+        if gp == pos:
+            athlete_votes[aid]['M'] += 1
+        elif gp < pos:
+            athlete_votes[aid]['F'] += 1
+
+    # Resolve votes
+    classified = {}
+    for aid, votes in athlete_votes.items():
+        if votes['F'] > votes['M']:
+            classified[aid] = 'F'
+        elif votes['M'] > votes['F']:
+            classified[aid] = 'M'
+        elif votes['M'] > 0:
+            classified[aid] = 'M'  # Default to male if tied
+
+    # Strategy 3: Athletes who only ran pre-1975 (before women allowed)
+    rows = conn.execute("""
+        SELECT UPPER(athlete_id), MAX(year)
+        FROM results
+        WHERE athlete_id IS NOT NULL AND athlete_id != ''
+        GROUP BY UPPER(athlete_id)
+        HAVING MAX(year) < 1975
+    """).fetchall()
+    for aid, _ in rows:
+        if aid not in classified:
+            classified[aid] = 'M'
+
+    males = sum(1 for g in classified.values() if g == 'M')
+    females = sum(1 for g in classified.values() if g == 'F')
+    logger.info(f"  Classified {len(classified):,} athletes: {males:,} male, {females:,} female")
+    return classified
+
 # Medal hierarchy (best to worst)
 MEDAL_RANK = {
     "Gold": 1,
@@ -76,7 +165,7 @@ def medal_to_code(medal: str) -> str:
 # Export functions
 # ---------------------------------------------------------------------------
 
-def export_stats(conn: sqlite3.Connection, out_dir: str):
+def export_stats(conn: sqlite3.Connection, out_dir: str, gender_map: dict[str, str]):
     """Export overall statistics."""
     logger.info("Exporting stats.json...")
 
@@ -108,6 +197,21 @@ def export_stats(conn: sqlite3.Connection, out_dir: str):
     min_year = conn.execute("SELECT MIN(year) FROM results").fetchone()[0]
     max_year = conn.execute("SELECT MAX(year) FROM results").fetchone()[0]
 
+    # Gender breakdown
+    male_athletes = sum(1 for g in gender_map.values() if g == 'M')
+    female_athletes = sum(1 for g in gender_map.values() if g == 'F')
+
+    # Count finishes by gender
+    rows = conn.execute("""
+        SELECT UPPER(athlete_id), COUNT(*) FROM results
+        WHERE athlete_id IS NOT NULL AND athlete_id != ''
+        AND medal != '' AND medal IS NOT NULL
+        AND medal NOT IN ('DNF', 'DNS', 'Not started', 'DQ')
+        GROUP BY UPPER(athlete_id)
+    """).fetchall()
+    male_finishes = sum(cnt for aid, cnt in rows if gender_map.get(aid) == 'M')
+    female_finishes = sum(cnt for aid, cnt in rows if gender_map.get(aid) == 'F')
+
     stats = {
         "totalResults": total_results,
         "totalFinishes": total_finishes,
@@ -116,13 +220,17 @@ def export_stats(conn: sqlite3.Connection, out_dir: str):
         "countries": countries,
         "clubs": clubs,
         "yearRange": [min_year, max_year],
+        "maleAthletes": male_athletes,
+        "femaleAthletes": female_athletes,
+        "maleFinishes": male_finishes,
+        "femaleFinishes": female_finishes,
     }
 
     write_json(os.path.join(out_dir, "stats.json"), stats)
-    logger.info(f"  stats.json: {json.dumps(stats, indent=2)[:200]}")
+    logger.info(f"  stats.json: {json.dumps(stats, indent=2)[:300]}")
 
 
-def export_years(conn: sqlite3.Connection, out_dir: str):
+def export_years(conn: sqlite3.Connection, out_dir: str, gender_map: dict[str, str]):
     """Export per-year summary data for charts and year explorer."""
     logger.info("Exporting years.json...")
 
@@ -153,13 +261,35 @@ def export_years(conn: sqlite3.Connection, out_dir: str):
             "SELECT COUNT(*) FROM results WHERE year = ?", (year,)
         ).fetchone()[0]
 
-        # Get winner(s) - men (pos = 1 or smallest pos)
+        # Get winner(s) - overall (pos = 1 or smallest pos)
         winner_men = conn.execute("""
             SELECT name, time FROM results
             WHERE year = ? AND pos = '1' AND time != '' AND time IS NOT NULL
             AND medal NOT IN ('DNF', 'DNS', 'Not started', 'DQ')
             ORDER BY time ASC LIMIT 1
         """, (year,)).fetchone()
+
+        # Get women's winner (gender_pos = 1 among females)
+        winner_women = None
+        women_candidates = conn.execute("""
+            SELECT UPPER(athlete_id), name, time FROM results
+            WHERE year = ? AND gender_pos = '1' AND time != '' AND time IS NOT NULL
+            AND medal NOT IN ('DNF', 'DNS', 'Not started', 'DQ')
+            ORDER BY time ASC
+        """, (year,)).fetchall()
+        for wc in women_candidates:
+            if gender_map.get(wc[0]) == 'F':
+                winner_women = (wc[1], wc[2])
+                break
+
+        # Count finishers by gender
+        finisher_rows = conn.execute("""
+            SELECT UPPER(athlete_id) FROM results
+            WHERE year = ? AND medal != '' AND medal IS NOT NULL
+            AND medal NOT IN ('DNF', 'DNS', 'Not started', 'DQ')
+        """, (year,)).fetchall()
+        male_finishers = sum(1 for r in finisher_rows if gender_map.get(r[0]) == 'M')
+        female_finishers = sum(1 for r in finisher_rows if gender_map.get(r[0]) == 'F')
 
         # Get medal distribution for this year
         medals = {}
@@ -178,8 +308,13 @@ def export_years(conn: sqlite3.Connection, out_dir: str):
             "medals": medals,
         }
 
+        entry["maleFinishers"] = male_finishers
+        entry["femaleFinishers"] = female_finishers
+
         if winner_men:
             entry["winner"] = {"name": winner_men[0], "time": winner_men[1]}
+        if winner_women:
+            entry["winnerWomen"] = {"name": winner_women[0], "time": winner_women[1]}
 
         if ri:
             date, weather, direction, race_number, distance, starters, finishers_total, \
@@ -218,7 +353,7 @@ def export_years(conn: sqlite3.Connection, out_dir: str):
     logger.info(f"  years.json: {len(years_data)} years")
 
 
-def export_leaderboards(conn: sqlite3.Connection, out_dir: str):
+def export_leaderboards(conn: sqlite3.Connection, out_dir: str, gender_map: dict[str, str]):
     """Export leaderboard data."""
     logger.info("Exporting leaderboards.json...")
 
@@ -234,27 +369,39 @@ def export_leaderboards(conn: sqlite3.Connection, out_dir: str):
         AND medal NOT IN ('DNF', 'DNS', 'Not started', 'DQ')
         GROUP BY uid
         ORDER BY finishes DESC
-        LIMIT 200
+        LIMIT 2000
     """).fetchall()
 
-    for i, row in enumerate(rows):
+    all_runners = []
+    for row in rows:
         athlete_id, name, finishes, first_year, last_year, medals_str = row
         medal_list = [m.strip() for m in (medals_str or "").split(",") if m.strip()]
-        most_finishes.append({
-            "rank": i + 1,
+        all_runners.append({
             "athleteId": athlete_id,
             "name": name,
             "finishes": finishes,
             "firstYear": first_year,
             "lastYear": last_year,
             "bestMedal": best_medal(medal_list),
+            "gender": gender_map.get(athlete_id, "M"),
         })
+
+    # Get top 200 overall
+    for i, r in enumerate(all_runners[:200]):
+        most_finishes.append({**r, "rank": i + 1})
+
+    # Get top 200 women separately
+    most_finishes_women = []
+    women_runners = [r for r in all_runners if r["gender"] == "F"]
+    for i, r in enumerate(women_runners[:200]):
+        most_finishes_women.append({**r, "rank": i + 1})
 
     # Fastest winning times (all years, pos = 1)
     fastest_times = []
     rows = conn.execute("""
         SELECT r.year, r.name, r.time,
-               COALESCE(ri.direction, '') as direction
+               COALESCE(ri.direction, '') as direction,
+               UPPER(r.athlete_id) as uid
         FROM results r
         LEFT JOIN race_info ri ON r.year = ri.year
         WHERE r.pos = '1' AND r.time != '' AND r.time IS NOT NULL
@@ -265,12 +412,42 @@ def export_leaderboards(conn: sqlite3.Connection, out_dir: str):
 
     seen_years = set()
     for row in rows:
-        year, name, time_str, direction = row
+        year, name, time_str, direction, uid = row
         if year in seen_years:
             continue
         seen_years.add(year)
         fastest_times.append({
             "rank": len(fastest_times) + 1,
+            "year": year,
+            "name": name,
+            "time": time_str,
+            "direction": direction,
+        })
+
+    # Fastest winning times for women (gender_pos = 1 among females)
+    fastest_times_women = []
+    rows = conn.execute("""
+        SELECT r.year, r.name, r.time,
+               COALESCE(ri.direction, '') as direction,
+               UPPER(r.athlete_id) as uid
+        FROM results r
+        LEFT JOIN race_info ri ON r.year = ri.year
+        WHERE r.gender_pos = '1' AND r.time != '' AND r.time IS NOT NULL
+        AND r.time != '00:00:00'
+        AND r.medal NOT IN ('DNF', 'DNS', 'Not started', 'DQ')
+        ORDER BY r.time ASC
+    """).fetchall()
+
+    seen_years_w = set()
+    for row in rows:
+        year, name, time_str, direction, uid = row
+        if gender_map.get(uid) != 'F':
+            continue
+        if year in seen_years_w:
+            continue
+        seen_years_w.add(year)
+        fastest_times_women.append({
+            "rank": len(fastest_times_women) + 1,
             "year": year,
             "name": name,
             "time": time_str,
@@ -322,18 +499,20 @@ def export_leaderboards(conn: sqlite3.Connection, out_dir: str):
 
     data = {
         "mostFinishes": most_finishes,
+        "mostFinishesWomen": most_finishes_women,
         "fastestTimes": fastest_times,
+        "fastestTimesWomen": fastest_times_women,
         "topClubs": top_clubs,
         "topCountries": top_countries,
     }
 
     write_json(os.path.join(out_dir, "leaderboards.json"), data)
     logger.info(f"  leaderboards.json: {len(most_finishes)} runners, "
-                f"{len(fastest_times)} times, {len(top_clubs)} clubs, "
-                f"{len(top_countries)} countries")
+                f"{len(fastest_times)} times (men), {len(fastest_times_women)} times (women), "
+                f"{len(top_clubs)} clubs, {len(top_countries)} countries")
 
 
-def export_search_index(conn: sqlite3.Connection, out_dir: str):
+def export_search_index(conn: sqlite3.Connection, out_dir: str, gender_map: dict[str, str]):
     """Export search index split by first letter of surname."""
     logger.info("Exporting search index...")
 
@@ -367,9 +546,11 @@ def export_search_index(conn: sqlite3.Connection, out_dir: str):
         surname = parts[-1] if parts else name
         letter = surname[0].lower() if surname and surname[0].isalpha() else "other"
 
-        # Compact array format: [name, athleteId, finishes, firstYear, lastYear, bestMedalCode]
+        gender = gender_map.get(athlete_id, "")
+
+        # Compact array format: [name, athleteId, finishes, firstYear, lastYear, bestMedalCode, gender]
         buckets[letter].append([
-            name, athlete_id, finishes, first_year, last_year, medal_to_code(best)
+            name, athlete_id, finishes, first_year, last_year, medal_to_code(best), gender
         ])
 
     total_entries = 0
@@ -384,7 +565,7 @@ def export_search_index(conn: sqlite3.Connection, out_dir: str):
     logger.info(f"  Total search entries: {total_entries}")
 
 
-def export_runner_buckets(conn: sqlite3.Connection, out_dir: str):
+def export_runner_buckets(conn: sqlite3.Connection, out_dir: str, gender_map: dict[str, str]):
     """Export runner race histories grouped by UUID prefix."""
     logger.info("Exporting runner buckets...")
 
@@ -411,6 +592,7 @@ def export_runner_buckets(conn: sqlite3.Connection, out_dir: str):
         if athlete_id not in buckets[prefix]:
             buckets[prefix][athlete_id] = {
                 "name": name,
+                "gender": gender_map.get(athlete_id, ""),
                 "races": []
             }
 
@@ -479,11 +661,12 @@ def main():
     conn.execute("PRAGMA journal_mode=WAL")
 
     try:
-        export_stats(conn, str(out_dir))
-        export_years(conn, str(out_dir))
-        export_leaderboards(conn, str(out_dir))
-        export_search_index(conn, str(out_dir))
-        export_runner_buckets(conn, str(out_dir))
+        gender_map = classify_genders(conn)
+        export_stats(conn, str(out_dir), gender_map)
+        export_years(conn, str(out_dir), gender_map)
+        export_leaderboards(conn, str(out_dir), gender_map)
+        export_search_index(conn, str(out_dir), gender_map)
+        export_runner_buckets(conn, str(out_dir), gender_map)
 
         # Print total size
         total_size = 0

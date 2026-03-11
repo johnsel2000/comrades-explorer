@@ -5,8 +5,8 @@ import {
   AreaChart, Area, LineChart, Line,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
-import { getYears, formatNumber } from "@/lib/data";
-import type { YearData } from "@/lib/types";
+import { getYears, getStats, formatNumber } from "@/lib/data";
+import type { YearData, Stats } from "@/lib/types";
 
 const MEDAL_CHART_COLORS: Record<string, string> = {
   Gold: "#FFD700",
@@ -21,11 +21,15 @@ const MEDAL_CHART_COLORS: Record<string, string> = {
 
 export default function StatsPage() {
   const [years, setYears] = useState<YearData[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getYears()
-      .then(setYears)
+    Promise.all([getYears(), getStats()])
+      .then(([y, s]) => {
+        setYears(y);
+        setStats(s);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -42,6 +46,25 @@ export default function StatsPage() {
         starters: y.starters || y.totalEntries || 0,
         finishers: y.finishers || y.officialFinishers || 0,
       })),
+    [chartYears]
+  );
+
+  // Gender participation data
+  const genderData = useMemo(
+    () =>
+      chartYears
+        .filter((y) => y.year >= 1975) // Women allowed from 1975
+        .map((y) => ({
+          year: y.year,
+          men: y.maleFinishers || 0,
+          women: y.femaleFinishers || 0,
+          womenPct:
+            y.maleFinishers && y.femaleFinishers
+              ? Math.round(
+                  (y.femaleFinishers / (y.maleFinishers + y.femaleFinishers)) * 1000
+                ) / 10
+              : 0,
+        })),
     [chartYears]
   );
 
@@ -196,6 +219,52 @@ export default function StatsPage() {
         </div>
       )}
 
+      {/* Gender stats cards */}
+      {stats && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Gender Breakdown</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="bg-blue-50 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-blue-700">{formatNumber(stats.maleAthletes)}</div>
+              <div className="text-xs text-blue-600 mt-0.5">Male Athletes</div>
+            </div>
+            <div className="bg-pink-50 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-pink-700">{formatNumber(stats.femaleAthletes)}</div>
+              <div className="text-xs text-pink-600 mt-0.5">Female Athletes</div>
+            </div>
+            <div className="bg-blue-50 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-blue-700">{formatNumber(stats.maleFinishes)}</div>
+              <div className="text-xs text-blue-600 mt-0.5">Male Finishes</div>
+            </div>
+            <div className="bg-pink-50 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-pink-700">{formatNumber(stats.femaleFinishes)}</div>
+              <div className="text-xs text-pink-600 mt-0.5">Female Finishes</div>
+            </div>
+          </div>
+          <div className="mt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs text-gray-500">Women as % of all finishers</span>
+              <span className="text-xs font-bold text-pink-600">
+                {((stats.femaleFinishes / stats.totalFinishes) * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="h-3 bg-blue-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-pink-400 rounded-full"
+                style={{
+                  width: `${(stats.femaleFinishes / stats.totalFinishes) * 100}%`,
+                  marginLeft: `${((stats.totalFinishes - stats.femaleFinishes) / stats.totalFinishes) * 100}%`,
+                }}
+              />
+            </div>
+            <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
+              <span>Men ({((stats.maleFinishes / stats.totalFinishes) * 100).toFixed(1)}%)</span>
+              <span>Women ({((stats.femaleFinishes / stats.totalFinishes) * 100).toFixed(1)}%)</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Race Growth */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-1">Race Growth</h2>
@@ -239,6 +308,88 @@ export default function StatsPage() {
         <div className="flex justify-center gap-6 mt-2 text-xs text-gray-500">
           <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-comrades rounded" /> Starters</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-[#DAA520] rounded" /> Finishers</span>
+        </div>
+      </div>
+
+      {/* Women's Participation Growth */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Women&apos;s Participation</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Women first competed in Comrades in 1975. Their participation has grown steadily ever since.
+        </p>
+        <div className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={genderData} margin={{ top: 5, right: 10, bottom: 5, left: 10 }}>
+              <defs>
+                <linearGradient id="gMen" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="gWomen" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#EC4899" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#EC4899" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="year" tick={{ fontSize: 11 }} tickLine={false} />
+              <YAxis
+                tick={{ fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
+              />
+              <Tooltip
+                contentStyle={{ borderRadius: "8px", border: "1px solid #e5e5e5", fontSize: "13px" }}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                formatter={(value: any, name: any) => [
+                  formatNumber(Number(value)),
+                  name === "men" ? "Men" : "Women",
+                ]}
+              />
+              <Area type="monotone" dataKey="men" stroke="#3B82F6" strokeWidth={2} fill="url(#gMen)" />
+              <Area type="monotone" dataKey="women" stroke="#EC4899" strokeWidth={2} fill="url(#gWomen)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="flex justify-center gap-6 mt-2 text-xs text-gray-500">
+          <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-blue-500 rounded" /> Men</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-pink-500 rounded" /> Women</span>
+        </div>
+      </div>
+
+      {/* Women's Percentage Over Time */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Women as Percentage of Finishers</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          From a single pioneer in 1975 to nearly 20% of the field today.
+        </p>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={genderData} margin={{ top: 5, right: 10, bottom: 5, left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="year" tick={{ fontSize: 11 }} tickLine={false} />
+              <YAxis
+                domain={[0, 25]}
+                tick={{ fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v: number) => `${v}%`}
+              />
+              <Tooltip
+                contentStyle={{ borderRadius: "8px", border: "1px solid #e5e5e5", fontSize: "13px" }}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                formatter={(value: any) => [`${Number(value).toFixed(1)}%`, "Women %"]}
+              />
+              <Line
+                type="monotone"
+                dataKey="womenPct"
+                stroke="#EC4899"
+                strokeWidth={2}
+                dot={{ r: 2, fill: "#EC4899" }}
+                activeDot={{ r: 5 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       </div>
 

@@ -186,7 +186,7 @@ function SearchContent() {
           </div>
           <div className="space-y-2">
             {displayed.map((entry) => {
-              const [name, athleteId, finishes, firstYear, lastYear, medalCode] = entry;
+              const [name, athleteId, finishes, firstYear, lastYear, medalCode, gender] = entry;
               const medalName = MEDAL_NAMES[medalCode] || "";
               return (
                 <Link
@@ -198,6 +198,9 @@ function SearchContent() {
                     <div className="min-w-0">
                       <div className="font-medium text-gray-900 group-hover:text-comrades transition-colors truncate">
                         {name}
+                        {gender === "F" && (
+                          <span className="ml-1.5 text-[10px] text-pink-500 font-medium">W</span>
+                        )}
                       </div>
                       <div className="text-sm text-gray-500">
                         {firstYear}–{lastYear}

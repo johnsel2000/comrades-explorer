@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { getLeaderboards, formatTime, formatNumber } from "@/lib/data";
 import type { Leaderboards } from "@/lib/types";
 import MedalBadge from "@/components/MedalBadge";
 
 type Tab = "finishes" | "times" | "clubs" | "countries";
+type GenderFilter = "all" | "M" | "F";
 
 const tabs: { key: Tab; label: string }[] = [
   { key: "finishes", label: "Most Finishes" },
@@ -15,11 +16,42 @@ const tabs: { key: Tab; label: string }[] = [
   { key: "countries", label: "Top Countries" },
 ];
 
+function GenderToggle({
+  value,
+  onChange,
+}: {
+  value: GenderFilter;
+  onChange: (v: GenderFilter) => void;
+}) {
+  return (
+    <div className="flex gap-1 p-0.5 bg-gray-100 rounded-lg">
+      {[
+        { key: "all" as const, label: "All" },
+        { key: "M" as const, label: "Men" },
+        { key: "F" as const, label: "Women" },
+      ].map((opt) => (
+        <button
+          key={opt.key}
+          onClick={() => onChange(opt.key)}
+          className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+            value === opt.key
+              ? "bg-white text-comrades shadow-sm"
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function LeaderboardsPage() {
   const [data, setData] = useState<Leaderboards | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("finishes");
   const [showCount, setShowCount] = useState(50);
+  const [genderFilter, setGenderFilter] = useState<GenderFilter>("all");
 
   useEffect(() => {
     getLeaderboards()
@@ -29,7 +61,30 @@ export default function LeaderboardsPage() {
 
   useEffect(() => {
     setShowCount(50);
-  }, [activeTab]);
+  }, [activeTab, genderFilter]);
+
+  // Filtered most finishes
+  const filteredFinishes = useMemo(() => {
+    if (!data) return [];
+    if (genderFilter === "F") {
+      return data.mostFinishesWomen;
+    }
+    if (genderFilter === "M") {
+      const men = data.mostFinishes.filter((r) => r.gender === "M");
+      return men.map((r, i) => ({ ...r, rank: i + 1 }));
+    }
+    return data.mostFinishes;
+  }, [data, genderFilter]);
+
+  // Filtered fastest times
+  const filteredTimes = useMemo(() => {
+    if (!data) return [];
+    if (genderFilter === "F") {
+      return data.fastestTimesWomen;
+    }
+    // "all" and "M" both show overall winners (which are male)
+    return data.fastestTimes;
+  }, [data, genderFilter]);
 
   if (loading) {
     return (
@@ -41,6 +96,8 @@ export default function LeaderboardsPage() {
 
   if (!data) return null;
 
+  const showGenderToggle = activeTab === "finishes" || activeTab === "times";
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
       <h1 className="text-3xl font-bold text-gray-900 mb-2">Leaderboards</h1>
@@ -49,7 +106,7 @@ export default function LeaderboardsPage() {
       </p>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-6 overflow-x-auto">
+      <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-4 overflow-x-auto">
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -64,6 +121,18 @@ export default function LeaderboardsPage() {
           </button>
         ))}
       </div>
+
+      {/* Gender filter */}
+      {showGenderToggle && (
+        <div className="flex items-center justify-between mb-4">
+          <GenderToggle value={genderFilter} onChange={setGenderFilter} />
+          {genderFilter !== "all" && activeTab === "finishes" && (
+            <span className="text-xs text-gray-400">
+              {filteredFinishes.length} {genderFilter === "F" ? "women" : "men"}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Most Finishes */}
       {activeTab === "finishes" && (
@@ -80,7 +149,7 @@ export default function LeaderboardsPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.mostFinishes.slice(0, showCount).map((r) => (
+                {filteredFinishes.slice(0, showCount).map((r) => (
                   <tr key={r.athleteId} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                     <td className="px-4 py-2.5 text-gray-400 font-medium">{r.rank}</td>
                     <td className="px-4 py-2.5">
@@ -90,6 +159,9 @@ export default function LeaderboardsPage() {
                       >
                         {r.name}
                       </Link>
+                      {genderFilter === "all" && r.gender === "F" && (
+                        <span className="ml-1.5 text-[10px] text-pink-500 font-medium">W</span>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-right font-bold text-comrades">{r.finishes}</td>
                     <td className="px-4 py-2.5 text-gray-500 hidden sm:table-cell">
@@ -103,13 +175,13 @@ export default function LeaderboardsPage() {
               </tbody>
             </table>
           </div>
-          {showCount < data.mostFinishes.length && (
+          {showCount < filteredFinishes.length && (
             <div className="text-center py-4 border-t border-gray-100">
               <button
                 onClick={() => setShowCount((c) => c + 50)}
                 className="px-6 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
               >
-                Show more ({data.mostFinishes.length - showCount} remaining)
+                Show more ({filteredFinishes.length - showCount} remaining)
               </button>
             </div>
           )}
@@ -119,6 +191,11 @@ export default function LeaderboardsPage() {
       {/* Fastest Times */}
       {activeTab === "times" && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          {genderFilter === "F" && (
+            <div className="px-4 py-2 bg-pink-50 border-b border-pink-100 text-xs text-pink-700 font-medium">
+              Women&apos;s winning times (since 1975)
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -131,7 +208,7 @@ export default function LeaderboardsPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.fastestTimes.slice(0, showCount).map((r) => (
+                {filteredTimes.slice(0, showCount).map((r) => (
                   <tr key={`${r.year}-${r.time}`} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                     <td className="px-4 py-2.5 text-gray-400 font-medium">{r.rank}</td>
                     <td className="px-4 py-2.5 font-medium text-gray-900">{r.year}</td>
@@ -157,7 +234,7 @@ export default function LeaderboardsPage() {
               </tbody>
             </table>
           </div>
-          {showCount < data.fastestTimes.length && (
+          {showCount < filteredTimes.length && (
             <div className="text-center py-4 border-t border-gray-100">
               <button
                 onClick={() => setShowCount((c) => c + 50)}

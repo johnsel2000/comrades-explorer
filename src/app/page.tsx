@@ -252,15 +252,21 @@ export default function HomePage() {
       <QuickSearch />
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <StatCard
           label="Total Finishes"
           value={`${(stats.totalFinishes / 1000).toFixed(0)}K+`}
           sub={`of ${formatNumber(stats.totalResults)} entries`}
         />
         <StatCard
-          label="Unique Runners"
-          value={`${(stats.uniqueAthletes / 1000).toFixed(0)}K+`}
+          label="Men"
+          value={`${(stats.maleAthletes / 1000).toFixed(0)}K`}
+          sub={`${formatNumber(stats.maleFinishes)} finishes`}
+        />
+        <StatCard
+          label="Women"
+          value={`${(stats.femaleAthletes / 1000).toFixed(0)}K`}
+          sub={`${formatNumber(stats.femaleFinishes)} finishes`}
         />
         <StatCard
           label="Years of Data"

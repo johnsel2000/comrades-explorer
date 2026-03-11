@@ -171,7 +171,20 @@ function RunnerContent() {
 
       {/* Header */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">{runner.name}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold text-gray-900">{runner.name}</h1>
+          {runner.gender && (
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                runner.gender === "F"
+                  ? "bg-pink-100 text-pink-700"
+                  : "bg-blue-100 text-blue-700"
+              }`}
+            >
+              {runner.gender === "F" ? "Women" : "Men"}
+            </span>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-gray-500">
           {stats.raceNo && (
             <span className="inline-flex items-center px-2 py-0.5 rounded bg-comrades/10 text-comrades font-mono font-medium text-xs">
