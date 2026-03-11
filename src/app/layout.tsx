@@ -20,11 +20,11 @@ export const metadata: Metadata = {
     template: "%s | Comrades Explorer",
   },
   description:
-    "Explore 100+ years of Comrades Marathon results — 694K finishes, 199K athletes, 155 countries. Search runners, view leaderboards, and discover stats.",
+    "Explore 100+ years of Comrades Marathon results — 694K finishes, 169K athletes, 155 countries. Search runners, view leaderboards, and discover stats.",
   openGraph: {
     title: "Comrades Marathon Explorer",
     description:
-      "Explore 100+ years of Comrades Marathon results — 694K finishes, 199K athletes, 155 countries.",
+      "Explore 100+ years of Comrades Marathon results — 694K finishes, 169K athletes, 155 countries.",
     type: "website",
   },
 };

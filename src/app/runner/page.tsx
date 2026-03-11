@@ -63,6 +63,9 @@ function RunnerContent() {
     const clubs = [...new Set(finishes.map((r) => r.club).filter(Boolean))];
     const years = finishes.map((r) => r.year).sort((a, b) => a - b);
 
+    // Get race number (consistent across all entries)
+    const raceNos = [...new Set(runner.races.map((r) => r.raceNo).filter(Boolean))];
+
     return {
       totalFinishes: finishes.length,
       totalRaces: runner.races.length,
@@ -72,6 +75,7 @@ function RunnerContent() {
       lastYear: years[years.length - 1] || null,
       countries,
       clubs,
+      raceNo: raceNos[raceNos.length - 1] || null,
       bestPos: finishes
         .map((r) => (r.pos && r.pos !== "" ? parseInt(r.pos) : Infinity))
         .filter((p) => !isNaN(p) && p > 0)
@@ -169,6 +173,11 @@ function RunnerContent() {
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
         <h1 className="text-3xl font-bold text-gray-900">{runner.name}</h1>
         <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-gray-500">
+          {stats.raceNo && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded bg-comrades/10 text-comrades font-mono font-medium text-xs">
+              #{stats.raceNo}
+            </span>
+          )}
           {stats.countries.length > 0 && (
             <span>{stats.countries.join(", ")}</span>
           )}

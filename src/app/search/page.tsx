@@ -116,7 +116,7 @@ function SearchContent() {
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
       <h1 className="text-3xl font-bold text-gray-900 mb-2">Search Runners</h1>
       <p className="text-gray-500 mb-6">
-        Search across 199K+ athletes from 100+ years of Comrades Marathon history.
+        Search across 169K+ athletes from 100+ years of Comrades Marathon history.
       </p>
 
       {/* Search input */}

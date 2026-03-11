@@ -90,7 +90,7 @@ def export_stats(conn: sqlite3.Connection, out_dir: str):
     """).fetchone()[0]
 
     unique_athletes = conn.execute(
-        "SELECT COUNT(DISTINCT athlete_id) FROM results WHERE athlete_id != '' AND athlete_id IS NOT NULL"
+        "SELECT COUNT(DISTINCT UPPER(athlete_id)) FROM results WHERE athlete_id != '' AND athlete_id IS NOT NULL"
     ).fetchone()[0]
 
     years_with_data = conn.execute(
@@ -225,14 +225,14 @@ def export_leaderboards(conn: sqlite3.Connection, out_dir: str):
     # Most finishes (top 200)
     most_finishes = []
     rows = conn.execute("""
-        SELECT athlete_id, name, COUNT(*) as finishes,
+        SELECT UPPER(athlete_id) as uid, name, COUNT(*) as finishes,
                MIN(year) as first_year, MAX(year) as last_year,
                GROUP_CONCAT(DISTINCT medal) as medals
         FROM results
         WHERE athlete_id != '' AND athlete_id IS NOT NULL
         AND medal != '' AND medal IS NOT NULL
         AND medal NOT IN ('DNF', 'DNS', 'Not started', 'DQ')
-        GROUP BY athlete_id
+        GROUP BY uid
         ORDER BY finishes DESC
         LIMIT 200
     """).fetchall()
@@ -281,7 +281,7 @@ def export_leaderboards(conn: sqlite3.Connection, out_dir: str):
     top_clubs = []
     rows = conn.execute("""
         SELECT club, COUNT(*) as total_finishes,
-               COUNT(DISTINCT athlete_id) as unique_runners
+               COUNT(DISTINCT UPPER(athlete_id)) as unique_runners
         FROM results
         WHERE club != '' AND club IS NOT NULL
         AND medal != '' AND medal IS NOT NULL
@@ -303,7 +303,7 @@ def export_leaderboards(conn: sqlite3.Connection, out_dir: str):
     top_countries = []
     rows = conn.execute("""
         SELECT country, COUNT(*) as total_finishes,
-               COUNT(DISTINCT athlete_id) as unique_runners
+               COUNT(DISTINCT UPPER(athlete_id)) as unique_runners
         FROM results
         WHERE country != '' AND country IS NOT NULL
         AND medal != '' AND medal IS NOT NULL
@@ -340,9 +340,9 @@ def export_search_index(conn: sqlite3.Connection, out_dir: str):
     search_dir = os.path.join(out_dir, "search")
     os.makedirs(search_dir, exist_ok=True)
 
-    # Build athlete data
+    # Build athlete data (normalize athlete_id to uppercase to merge case variants)
     rows = conn.execute("""
-        SELECT athlete_id, name,
+        SELECT UPPER(athlete_id) as uid, name,
                COUNT(*) as finishes,
                MIN(year) as first_year,
                MAX(year) as last_year,
@@ -351,7 +351,7 @@ def export_search_index(conn: sqlite3.Connection, out_dir: str):
         WHERE athlete_id != '' AND athlete_id IS NOT NULL
         AND medal != '' AND medal IS NOT NULL
         AND medal NOT IN ('DNF', 'DNS', 'Not started', 'DQ')
-        GROUP BY athlete_id
+        GROUP BY uid
         ORDER BY name
     """).fetchall()
 
@@ -391,20 +391,20 @@ def export_runner_buckets(conn: sqlite3.Connection, out_dir: str):
     runners_dir = os.path.join(out_dir, "runners")
     os.makedirs(runners_dir, exist_ok=True)
 
-    # Get all results grouped by athlete
+    # Get all results grouped by athlete (normalize athlete_id to uppercase)
     rows = conn.execute("""
-        SELECT athlete_id, name, year, time, pos, medal, club, country,
-               category, category_pos, gender_pos
+        SELECT UPPER(athlete_id) as uid, name, year, time, pos, medal, club, country,
+               category, category_pos, gender_pos, race_no
         FROM results
         WHERE athlete_id != '' AND athlete_id IS NOT NULL
-        ORDER BY athlete_id, year
+        ORDER BY uid, year
     """).fetchall()
 
     # Group into buckets by first 2 chars of UUID
     buckets = defaultdict(dict)
     for row in rows:
         athlete_id, name, year, time_str, pos, medal, club, country, \
-            category, category_pos, gender_pos = row
+            category, category_pos, gender_pos, race_no = row
 
         prefix = athlete_id[:2].upper()
 
@@ -422,6 +422,8 @@ def export_runner_buckets(conn: sqlite3.Connection, out_dir: str):
             "club": club or "",
             "country": country or "",
         }
+        if race_no:
+            race["raceNo"] = race_no
         if category:
             race["category"] = category
         if category_pos:

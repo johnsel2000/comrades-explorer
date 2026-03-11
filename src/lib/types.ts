@@ -78,6 +78,7 @@ export interface RunnerRace {
   medal: string;
   club: string;
   country: string;
+  raceNo?: string;
   category?: string;
   categoryPos?: string;
   genderPos?: string;

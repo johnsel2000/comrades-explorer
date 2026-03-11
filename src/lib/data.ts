@@ -36,8 +36,9 @@ export async function getRunner(
   athleteId: string
 ): Promise<RunnerData | null> {
   try {
-    const bucket = await getRunnerBucket(athleteId);
-    return bucket[athleteId] || null;
+    const normalizedId = athleteId.toUpperCase();
+    const bucket = await getRunnerBucket(normalizedId);
+    return bucket[normalizedId] || null;
   } catch {
     return null;
   }
