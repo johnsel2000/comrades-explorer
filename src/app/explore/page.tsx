@@ -645,17 +645,26 @@ function ExploreContent() {
                       </tr>
                     </thead>
                     <tbody>
-                      {d.topNeverFinishers.slice(0, 10).map((r) => (
-                        <tr key={r.athleteId} className="border-b border-gray-50 hover:bg-gray-50/50">
-                          <td className="px-4 py-2">
-                            <Link href={`/runner?id=${r.athleteId}`} className="hover:text-comrades transition-colors font-medium">
-                              {r.name}
-                            </Link>
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono font-bold text-comrades">{r.dnfs}</td>
-                          <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.firstYear}–{r.lastYear}</td>
-                        </tr>
-                      ))}
+                      {d.topNeverFinishers.slice(0, 10).map((r) => {
+                        const isActive = r.lastYear >= 2024;
+                        return (
+                          <tr key={r.athleteId} className="border-b border-gray-50 hover:bg-gray-50/50">
+                            <td className="px-4 py-2">
+                              <Link href={`/runner?id=${r.athleteId}`} className="hover:text-comrades transition-colors font-medium">
+                                {r.name}
+                              </Link>
+                              {isActive && (
+                                <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                  Still trying
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2 text-right font-mono font-bold text-comrades">{r.dnfs}</td>
+                            <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.firstYear}–{r.lastYear}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
