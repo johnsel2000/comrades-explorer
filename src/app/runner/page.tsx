@@ -3,9 +3,11 @@
 import { useEffect, useState, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getRunner, formatTime, formatNumber } from "@/lib/data";
+import { getRunner, getAthleteBio, getClubSlugMap, formatTime, formatNumber, slugifyCountry, slugifyClub } from "@/lib/data";
+import type { AthleteBio } from "@/lib/data";
 import type { RunnerData, RunnerRace } from "@/lib/types";
 import MedalBadge from "@/components/MedalBadge";
+import GreenNumberBadge from "@/components/GreenNumberBadge";
 import { MEDAL_COLORS } from "@/lib/types";
 
 type SortKey = "year" | "pos" | "time" | "medal";
@@ -16,6 +18,8 @@ function RunnerContent() {
   const athleteId = searchParams.get("id") || "";
 
   const [runner, setRunner] = useState<RunnerData | null>(null);
+  const [bio, setBio] = useState<AthleteBio | null>(null);
+  const [clubSlugMap, setClubSlugMap] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("year");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -26,9 +30,15 @@ function RunnerContent() {
       return;
     }
     setLoading(true);
-    getRunner(athleteId)
-      .then(setRunner)
-      .finally(() => setLoading(false));
+    Promise.all([
+      getRunner(athleteId),
+      getAthleteBio(athleteId),
+      getClubSlugMap(),
+    ]).then(([r, b, csm]) => {
+      setRunner(r);
+      setBio(b);
+      setClubSlugMap(csm);
+    }).finally(() => setLoading(false));
   }, [athleteId]);
 
   const stats = useMemo(() => {
@@ -80,6 +90,12 @@ function RunnerContent() {
         .map((r) => (r.pos && r.pos !== "" ? parseInt(r.pos) : Infinity))
         .filter((p) => !isNaN(p) && p > 0)
         .sort((a, b) => a - b)[0] || null,
+      bestGenderPos: runner.gender === "F"
+        ? finishes
+            .map((r) => (r.genderPos && r.genderPos !== "" ? parseInt(r.genderPos) : Infinity))
+            .filter((p) => !isNaN(p) && p > 0)
+            .sort((a, b) => a - b)[0] || null
+        : null,
     };
   }, [runner]);
 
@@ -94,7 +110,11 @@ function RunnerContent() {
           cmp = a.year - b.year;
           break;
         case "pos":
-          cmp = (parseInt(a.pos) || 99999) - (parseInt(b.pos) || 99999);
+          if (runner.gender === "F") {
+            cmp = (parseInt(a.genderPos || "") || 99999) - (parseInt(b.genderPos || "") || 99999);
+          } else {
+            cmp = (parseInt(a.pos) || 99999) - (parseInt(b.pos) || 99999);
+          }
           break;
         case "time":
           cmp = (a.time || "99:99:99").localeCompare(b.time || "99:99:99");
@@ -187,12 +207,29 @@ function RunnerContent() {
         </div>
         <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-gray-500">
           {stats.raceNo && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded bg-comrades/10 text-comrades font-mono font-medium text-xs">
+            <span className={`inline-flex items-center px-2 py-0.5 rounded font-mono font-medium text-xs ${
+              stats.totalFinishes >= 10
+                ? "bg-green-100 text-green-800 border border-green-400"
+                : "bg-comrades/10 text-comrades"
+            }`}>
               #{stats.raceNo}
             </span>
           )}
+          <GreenNumberBadge finishes={stats.totalFinishes} size="md" showLabel />
           {stats.countries.length > 0 && (
-            <span>{stats.countries.join(", ")}</span>
+            <span>
+              {stats.countries.map((c, i) => (
+                <span key={c}>
+                  {i > 0 && ", "}
+                  <Link
+                    href={`/country?name=${slugifyCountry(c)}`}
+                    className="hover:text-comrades transition-colors"
+                  >
+                    {c}
+                  </Link>
+                </span>
+              ))}
+            </span>
           )}
           {stats.clubs.length > 0 && (
             <>
@@ -200,10 +237,14 @@ function RunnerContent() {
               <span>{stats.clubs[stats.clubs.length - 1]}</span>
             </>
           )}
+          <span className="text-gray-300">|</span>
+          <Link href={`/compare?r1=${athleteId}`} className="text-comrades hover:underline text-xs font-medium">
+            ⚔️ Compare
+          </Link>
         </div>
 
         {/* Stats cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6">
+        <div className={`grid grid-cols-2 ${runner.gender === "F" ? "sm:grid-cols-5" : "sm:grid-cols-4"} gap-4 mt-6`}>
           <div className="bg-gray-50 rounded-lg p-3 text-center">
             <div className="text-2xl font-bold text-comrades">{stats.totalFinishes}</div>
             <div className="text-xs text-gray-500 mt-0.5">
@@ -216,6 +257,14 @@ function RunnerContent() {
             </div>
             <div className="text-xs text-gray-500 mt-0.5">Best Time</div>
           </div>
+          {runner.gender === "F" && (
+            <div className="bg-gray-50 rounded-lg p-3 text-center">
+              <div className={`text-2xl font-bold ${stats.bestGenderPos && stats.bestGenderPos <= 3 ? "text-yellow-600" : "text-comrades"}`}>
+                {stats.bestGenderPos ? `#${stats.bestGenderPos}` : "-"}
+              </div>
+              <div className="text-xs text-gray-500 mt-0.5">Best Women&apos;s Pos</div>
+            </div>
+          )}
           <div className="bg-gray-50 rounded-lg p-3 text-center">
             {stats.bestMedal ? (
               <div className="flex justify-center mb-0.5">
@@ -241,6 +290,40 @@ function RunnerContent() {
         </div>
       </div>
 
+      {/* Bio (for notable athletes) */}
+      {bio && (
+        <div className="bg-gradient-to-r from-amber-50 to-yellow-50 rounded-xl border border-amber-200 p-5 mb-6">
+          <div className="flex items-start gap-3">
+            <div className="shrink-0 w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 text-sm mt-0.5">
+              ★
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap mb-2">
+                <span className="font-semibold text-gray-900 text-sm">Notable Athlete</span>
+                {bio.wikipedia && (
+                  <a
+                    href={bio.wikipedia}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] px-1.5 py-0.5 bg-white/70 text-gray-500 rounded hover:bg-white hover:text-comrades transition-colors border border-amber-200"
+                  >
+                    Wikipedia →
+                  </a>
+                )}
+              </div>
+              <p className="text-sm text-gray-700 leading-relaxed mb-2">{bio.bio}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {bio.tags.map((tag) => (
+                  <span key={tag} className="text-[10px] px-2 py-0.5 bg-white/80 text-amber-800 rounded-full border border-amber-200 font-medium">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Race history table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100">
@@ -260,7 +343,7 @@ function RunnerContent() {
                   className="text-left px-4 py-2.5 font-medium text-gray-600 cursor-pointer hover:text-gray-900 select-none"
                   onClick={() => handleSort("pos")}
                 >
-                  Pos <SortIcon column="pos" />
+                  {runner.gender === "F" ? "Gender Pos" : "Pos"} <SortIcon column="pos" />
                 </th>
                 <th
                   className="text-left px-4 py-2.5 font-medium text-gray-600 cursor-pointer hover:text-gray-900 select-none"
@@ -291,10 +374,27 @@ function RunnerContent() {
                     className={`border-b border-gray-50 hover:bg-gray-50/50 transition-colors ${isDNF ? "opacity-50" : ""}`}
                   >
                     <td className="px-4 py-2.5 font-medium text-gray-900">
-                      {race.year}
+                      <Link href={`/year?year=${race.year}`} className="hover:text-comrades transition-colors">
+                        {race.year}
+                      </Link>
                     </td>
                     <td className="px-4 py-2.5 text-gray-700">
-                      {race.pos && race.pos !== "0" ? formatNumber(parseInt(race.pos)) : "-"}
+                      {runner.gender === "F" ? (
+                        <>
+                          {race.genderPos && race.genderPos !== "0" ? (
+                            <span className={`font-medium ${parseInt(race.genderPos) <= 3 ? "text-yellow-700" : ""}`}>
+                              {formatNumber(parseInt(race.genderPos))}
+                            </span>
+                          ) : "-"}
+                          {race.pos && race.pos !== "0" && (
+                            <span className="text-gray-400 text-xs ml-1.5">
+                              (#{formatNumber(parseInt(race.pos))})
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        race.pos && race.pos !== "0" ? formatNumber(parseInt(race.pos)) : "-"
+                      )}
                     </td>
                     <td className="px-4 py-2.5 font-mono text-gray-700">
                       {formatTime(race.time)}
@@ -309,7 +409,16 @@ function RunnerContent() {
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-gray-500 hidden sm:table-cell truncate max-w-[200px]">
-                      {race.club || "-"}
+                      {race.club ? (() => {
+                        const resolved = clubSlugMap.get(slugifyClub(race.club));
+                        return resolved ? (
+                          <Link href={`/club?name=${resolved}`} className="hover:text-comrades transition-colors">
+                            {race.club}
+                          </Link>
+                        ) : (
+                          <span>{race.club}</span>
+                        );
+                      })() : "-"}
                     </td>
                     <td className="px-4 py-2.5 text-gray-500 hidden md:table-cell">
                       {race.category || "-"}

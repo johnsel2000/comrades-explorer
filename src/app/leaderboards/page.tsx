@@ -5,9 +5,11 @@ import Link from "next/link";
 import { getLeaderboards, formatTime, formatNumber } from "@/lib/data";
 import type { Leaderboards } from "@/lib/types";
 import MedalBadge from "@/components/MedalBadge";
+import GreenNumberBadge from "@/components/GreenNumberBadge";
 
 type Tab = "finishes" | "times" | "clubs" | "countries";
 type GenderFilter = "all" | "M" | "F";
+type DirectionFilter = "all" | "Up" | "Down";
 
 const tabs: { key: Tab; label: string }[] = [
   { key: "finishes", label: "Most Finishes" },
@@ -46,12 +48,43 @@ function GenderToggle({
   );
 }
 
+function DirectionToggle({
+  value,
+  onChange,
+}: {
+  value: DirectionFilter;
+  onChange: (v: DirectionFilter) => void;
+}) {
+  return (
+    <div className="flex gap-1 p-0.5 bg-gray-100 rounded-lg">
+      {[
+        { key: "all" as const, label: "All" },
+        { key: "Up" as const, label: "↑ Up", color: "text-red-600" },
+        { key: "Down" as const, label: "↓ Down", color: "text-blue-600" },
+      ].map((opt) => (
+        <button
+          key={opt.key}
+          onClick={() => onChange(opt.key)}
+          className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+            value === opt.key
+              ? "bg-white text-comrades shadow-sm"
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function LeaderboardsPage() {
   const [data, setData] = useState<Leaderboards | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("finishes");
   const [showCount, setShowCount] = useState(50);
   const [genderFilter, setGenderFilter] = useState<GenderFilter>("all");
+  const [directionFilter, setDirectionFilter] = useState<DirectionFilter>("all");
 
   useEffect(() => {
     getLeaderboards()
@@ -61,7 +94,7 @@ export default function LeaderboardsPage() {
 
   useEffect(() => {
     setShowCount(50);
-  }, [activeTab, genderFilter]);
+  }, [activeTab, genderFilter, directionFilter]);
 
   // Filtered most finishes
   const filteredFinishes = useMemo(() => {
@@ -76,15 +109,16 @@ export default function LeaderboardsPage() {
     return data.mostFinishes;
   }, [data, genderFilter]);
 
-  // Filtered fastest times
+  // Filtered fastest times (by gender + direction)
   const filteredTimes = useMemo(() => {
     if (!data) return [];
-    if (genderFilter === "F") {
-      return data.fastestTimesWomen;
-    }
-    // "all" and "M" both show overall winners (which are male)
-    return data.fastestTimes;
-  }, [data, genderFilter]);
+    const base = genderFilter === "F" ? data.fastestTimesWomen : data.fastestTimes;
+    if (directionFilter === "all") return base;
+    // Filter by direction and re-rank
+    return base
+      .filter((r) => r.direction === directionFilter)
+      .map((r, i) => ({ ...r, rank: i + 1 }));
+  }, [data, genderFilter, directionFilter]);
 
   if (loading) {
     return (
@@ -122,13 +156,22 @@ export default function LeaderboardsPage() {
         ))}
       </div>
 
-      {/* Gender filter */}
+      {/* Filters */}
       {showGenderToggle && (
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-wrap items-center gap-3 mb-4">
           <GenderToggle value={genderFilter} onChange={setGenderFilter} />
+          {activeTab === "times" && (
+            <DirectionToggle value={directionFilter} onChange={setDirectionFilter} />
+          )}
+          <div className="flex-1" />
           {genderFilter !== "all" && activeTab === "finishes" && (
             <span className="text-xs text-gray-400">
               {filteredFinishes.length} {genderFilter === "F" ? "women" : "men"}
+            </span>
+          )}
+          {activeTab === "times" && (directionFilter !== "all" || genderFilter !== "all") && (
+            <span className="text-xs text-gray-400">
+              {filteredTimes.length} results
             </span>
           )}
         </div>
@@ -162,6 +205,9 @@ export default function LeaderboardsPage() {
                       {genderFilter === "all" && r.gender === "F" && (
                         <span className="ml-1.5 text-[10px] text-pink-500 font-medium">W</span>
                       )}
+                      {r.finishes >= 10 && (
+                        <span className="ml-1.5"><GreenNumberBadge finishes={r.finishes} size="sm" /></span>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-right font-bold text-comrades">{r.finishes}</td>
                     <td className="px-4 py-2.5 text-gray-500 hidden sm:table-cell">
@@ -191,9 +237,15 @@ export default function LeaderboardsPage() {
       {/* Fastest Times */}
       {activeTab === "times" && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          {genderFilter === "F" && (
-            <div className="px-4 py-2 bg-pink-50 border-b border-pink-100 text-xs text-pink-700 font-medium">
-              Women&apos;s winning times (since 1975)
+          {(genderFilter === "F" || directionFilter !== "all") && (
+            <div className={`px-4 py-2 border-b text-xs font-medium ${
+              genderFilter === "F"
+                ? "bg-pink-50 border-pink-100 text-pink-700"
+                : "bg-gray-50 border-gray-100 text-gray-600"
+            }`}>
+              {genderFilter === "F" ? "Women\u2019s" : "Overall"} winning times
+              {directionFilter !== "all" && ` \u2014 ${directionFilter} runs only`}
+              {genderFilter === "F" && " (since 1975)"}
             </div>
           )}
           <div className="overflow-x-auto">
@@ -204,31 +256,48 @@ export default function LeaderboardsPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Year</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Winner</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Time</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell">Direction</th>
+                  {directionFilter === "all" && (
+                    <th className="text-left px-4 py-3 font-medium text-gray-600 hidden sm:table-cell">Direction</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {filteredTimes.slice(0, showCount).map((r) => (
                   <tr key={`${r.year}-${r.time}`} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                     <td className="px-4 py-2.5 text-gray-400 font-medium">{r.rank}</td>
-                    <td className="px-4 py-2.5 font-medium text-gray-900">{r.year}</td>
-                    <td className="px-4 py-2.5 text-gray-900">{r.name}</td>
+                    <td className="px-4 py-2.5 font-medium text-gray-900">
+                      <Link href={`/year?year=${r.year}`} className="hover:text-comrades transition-colors">{r.year}</Link>
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-900">
+                      {r.athleteId ? (
+                        <Link
+                          href={`/runner?id=${r.athleteId}`}
+                          className="font-medium hover:text-comrades transition-colors"
+                        >
+                          {r.name}
+                        </Link>
+                      ) : (
+                        r.name
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 font-mono font-bold text-comrades">
                       {formatTime(r.time)}
                     </td>
-                    <td className="px-4 py-2.5 hidden sm:table-cell">
-                      {r.direction && (
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                            r.direction === "Down"
-                              ? "bg-blue-50 text-blue-700"
-                              : "bg-red-50 text-red-700"
-                          }`}
-                        >
-                          {r.direction === "Down" ? "↓" : "↑"} {r.direction}
-                        </span>
-                      )}
-                    </td>
+                    {directionFilter === "all" && (
+                      <td className="px-4 py-2.5 hidden sm:table-cell">
+                        {r.direction && (
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                              r.direction === "Down"
+                                ? "bg-blue-50 text-blue-700"
+                                : "bg-red-50 text-red-700"
+                            }`}
+                          >
+                            {r.direction === "Down" ? "↓" : "↑"} {r.direction}
+                          </span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -306,7 +375,19 @@ export default function LeaderboardsPage() {
                 {data.topCountries.slice(0, showCount).map((r) => (
                   <tr key={r.country} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                     <td className="px-4 py-2.5 text-gray-400 font-medium">{r.rank}</td>
-                    <td className="px-4 py-2.5 font-medium text-gray-900">{r.country}</td>
+                    <td className="px-4 py-2.5 font-medium text-gray-900">
+                      {r.slug ? (
+                        <Link href={`/country?name=${r.slug}`} className="hover:text-comrades transition-colors">
+                          {r.flag && <span className="mr-2">{r.flag}</span>}
+                          {r.country}
+                        </Link>
+                      ) : (
+                        <>
+                          {r.flag && <span className="mr-2">{r.flag}</span>}
+                          {r.country}
+                        </>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 text-right font-bold text-comrades">
                       {formatNumber(r.totalFinishes)}
                     </td>

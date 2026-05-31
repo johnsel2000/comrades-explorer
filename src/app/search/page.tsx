@@ -6,6 +6,7 @@ import Link from "next/link";
 import { getSearchBucket } from "@/lib/data";
 import type { SearchEntry } from "@/lib/types";
 import MedalBadge from "@/components/MedalBadge";
+import GreenNumberBadge from "@/components/GreenNumberBadge";
 import { MEDAL_NAMES } from "@/lib/types";
 
 function SearchContent() {
@@ -15,85 +16,94 @@ function SearchContent() {
 
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchEntry[]>([]);
-  const [allEntries, setAllEntries] = useState<SearchEntry[]>([]);
   const [loading, setLoading] = useState(false);
-  const [loadedLetters, setLoadedLetters] = useState<Set<string>>(new Set());
   const [displayCount, setDisplayCount] = useState(50);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Refs to persist across renders without triggering effects
+  const allEntriesRef = useRef<SearchEntry[]>([]);
+  const loadedLettersRef = useRef<Set<string>>(new Set());
+  const loadingLettersRef = useRef<Set<string>>(new Set());
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  // Load search bucket when query changes
+  // Load search bucket and filter results when query changes (debounced)
   useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
     if (!query.trim()) {
       setResults([]);
       setDisplayCount(50);
+      setLoading(false);
       return;
     }
 
-    const q = query.trim().toLowerCase();
+    debounceRef.current = setTimeout(() => {
+      const q = query.trim().toLowerCase();
 
-    // Figure out which letter(s) we need
-    // Search the first letter of each word for potential surname matches
-    const letters = new Set<string>();
-    const words = q.split(/\s+/);
-    for (const word of words) {
-      if (word && word[0].match(/[a-z]/)) {
-        letters.add(word[0]);
+      // Figure out which letter(s) we need
+      const letters = new Set<string>();
+      const words = q.split(/\s+/);
+      for (const word of words) {
+        if (word && word[0].match(/[a-z]/)) {
+          letters.add(word[0]);
+        }
       }
-    }
-    if (letters.size === 0) letters.add("other");
+      if (letters.size === 0) letters.add("other");
 
-    // Load any missing letter buckets
-    const toLoad = [...letters].filter((l) => !loadedLetters.has(l));
+      // Load any missing letter buckets (skip already loaded or currently loading)
+      const toLoad = [...letters].filter(
+        (l) => !loadedLettersRef.current.has(l) && !loadingLettersRef.current.has(l)
+      );
 
-    if (toLoad.length > 0) {
-      setLoading(true);
-      Promise.all(toLoad.map((l) => getSearchBucket(l)))
-        .then((buckets) => {
-          setAllEntries((prev) => {
-            const existing = [...prev];
+      const filterAndSet = () => {
+        const filtered = allEntriesRef.current.filter((entry) =>
+          entry[0].toLowerCase().includes(q)
+        );
+        // Sort by relevance: exact surname matches first, then by finishes
+        filtered.sort((a, b) => {
+          const aName = a[0].toLowerCase();
+          const bName = b[0].toLowerCase();
+          const aStarts = aName.startsWith(q) || aName.split(" ").some(w => w.startsWith(q));
+          const bStarts = bName.startsWith(q) || bName.split(" ").some(w => w.startsWith(q));
+          if (aStarts && !bStarts) return -1;
+          if (!aStarts && bStarts) return 1;
+          return b[2] - a[2]; // Sort by finishes descending
+        });
+        setResults(filtered);
+        setDisplayCount(50);
+      };
+
+      if (toLoad.length > 0) {
+        setLoading(true);
+        for (const l of toLoad) loadingLettersRef.current.add(l);
+        Promise.all(toLoad.map((l) => getSearchBucket(l)))
+          .then((buckets) => {
             for (const bucket of buckets) {
-              existing.push(...bucket);
+              allEntriesRef.current.push(...bucket);
             }
-            return existing;
-          });
-          setLoadedLetters((prev) => {
-            const next = new Set(prev);
-            for (const l of toLoad) next.add(l);
-            return next;
-          });
-        })
-        .finally(() => setLoading(false));
-    }
-  }, [query, loadedLetters]);
+            for (const l of toLoad) {
+              loadedLettersRef.current.add(l);
+              loadingLettersRef.current.delete(l);
+            }
+            filterAndSet();
+          })
+          .finally(() => setLoading(false));
+      } else if ([...letters].every((l) => loadedLettersRef.current.has(l))) {
+        // All needed letters already loaded — just filter
+        filterAndSet();
+      }
+      // else: letters are currently loading, will be filtered when they complete
+    }, 150);
 
-  // Filter results when allEntries or query changes
-  useEffect(() => {
-    if (!query.trim()) {
-      setResults([]);
-      return;
-    }
-    const q = query.trim().toLowerCase();
-    const filtered = allEntries.filter((entry) =>
-      entry[0].toLowerCase().includes(q)
-    );
-    // Sort by relevance: exact surname matches first, then by finishes
-    filtered.sort((a, b) => {
-      const aName = a[0].toLowerCase();
-      const bName = b[0].toLowerCase();
-      const aStarts = aName.startsWith(q) || aName.split(" ").some(w => w.startsWith(q));
-      const bStarts = bName.startsWith(q) || bName.split(" ").some(w => w.startsWith(q));
-      if (aStarts && !bStarts) return -1;
-      if (!aStarts && bStarts) return 1;
-      return b[2] - a[2]; // Sort by finishes descending
-    });
-    setResults(filtered);
-    setDisplayCount(50);
-  }, [query, allEntries]);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query]);
 
   // Update URL when query changes (debounced)
   useEffect(() => {
@@ -208,6 +218,7 @@ function SearchContent() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3 shrink-0 ml-3">
+                    <GreenNumberBadge finishes={finishes} size="sm" />
                     {medalName && <MedalBadge medal={medalName} size="sm" />}
                     <div className="text-right">
                       <div className="text-lg font-bold text-comrades">{finishes}</div>

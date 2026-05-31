@@ -226,19 +226,13 @@ export default function StatsPage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="bg-blue-50 rounded-lg p-3 text-center">
               <div className="text-2xl font-bold text-blue-700">{formatNumber(stats.maleAthletes)}</div>
-              <div className="text-xs text-blue-600 mt-0.5">Male Athletes</div>
+              <div className="text-xs text-blue-600 mt-0.5">Men</div>
+              <div className="text-[10px] text-blue-400">{formatNumber(stats.maleFinishes)} finishes</div>
             </div>
             <div className="bg-pink-50 rounded-lg p-3 text-center">
               <div className="text-2xl font-bold text-pink-700">{formatNumber(stats.femaleAthletes)}</div>
-              <div className="text-xs text-pink-600 mt-0.5">Female Athletes</div>
-            </div>
-            <div className="bg-blue-50 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-blue-700">{formatNumber(stats.maleFinishes)}</div>
-              <div className="text-xs text-blue-600 mt-0.5">Male Finishes</div>
-            </div>
-            <div className="bg-pink-50 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-pink-700">{formatNumber(stats.femaleFinishes)}</div>
-              <div className="text-xs text-pink-600 mt-0.5">Female Finishes</div>
+              <div className="text-xs text-pink-600 mt-0.5">Women</div>
+              <div className="text-[10px] text-pink-400">{formatNumber(stats.femaleFinishes)} finishes</div>
             </div>
           </div>
           <div className="mt-4">
@@ -262,6 +256,52 @@ export default function StatsPage() {
               <span>Women ({((stats.femaleFinishes / stats.totalFinishes) * 100).toFixed(1)}%)</span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* The Average Comrades Runner */}
+      {stats?.avgFinishes && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">The Average Comrades Runner</h2>
+          <p className="text-sm text-gray-500 mb-5">
+            How many times does the typical runner cross that finish line?
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            {[
+              { label: "All Runners", data: stats.avgFinishes.all, bg: "bg-gray-50", accent: "text-comrades", border: "border-gray-200" },
+              { label: "Men", data: stats.avgFinishes.male, bg: "bg-blue-50", accent: "text-blue-700", border: "border-blue-100" },
+              { label: "Women", data: stats.avgFinishes.female, bg: "bg-pink-50", accent: "text-pink-700", border: "border-pink-100" },
+            ].map(({ label, data, bg, accent, border }) => (
+              <div key={label} className={`${bg} rounded-xl border ${border} p-5`}>
+                <div className="text-sm font-semibold text-gray-700 mb-3">{label}</div>
+                <div className="flex items-baseline gap-1 mb-4">
+                  <span className={`text-4xl font-bold ${accent}`}>{data.avgTotal}</span>
+                  <span className="text-sm text-gray-500">finishes</span>
+                </div>
+                <div className="flex gap-4">
+                  <div>
+                    <div className="flex items-baseline gap-1">
+                      <span className={`text-xl font-bold ${accent}`}>{data.avgUp}</span>
+                      <span className="text-red-500 text-xs">↑</span>
+                    </div>
+                    <div className="text-[10px] text-gray-400">Up runs</div>
+                  </div>
+                  <div>
+                    <div className="flex items-baseline gap-1">
+                      <span className={`text-xl font-bold ${accent}`}>{data.avgDown}</span>
+                      <span className="text-blue-500 text-xs">↓</span>
+                    </div>
+                    <div className="text-[10px] text-gray-400">Down runs</div>
+                  </div>
+                </div>
+                <div className="mt-3 text-[10px] text-gray-400">{formatNumber(data.count)} runners</div>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-4">
+            Women average fewer finishes partly because they were only allowed to compete from 1975 — giving them
+            fewer editions to accumulate runs compared to men who have had the full 100+ year history.
+          </p>
         </div>
       )}
 

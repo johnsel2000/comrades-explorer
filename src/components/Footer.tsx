@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Footer() {
   return (
     <footer className="border-t border-gray-200 bg-white mt-auto">
@@ -14,9 +16,18 @@ export default function Footer() {
               comrades.com
             </a>
           </p>
-          <p>
-            Covering {new Date().getFullYear() - 1921 + 1} years of the ultimate human race
-          </p>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/data-quality"
+              className="text-gray-400 hover:text-comrades transition-colors"
+            >
+              Data Quality
+            </Link>
+            <span className="text-gray-300">|</span>
+            <p>
+              Covering {new Date().getFullYear() - 1921 + 1} years of the ultimate human race
+            </p>
+          </div>
         </div>
       </div>
     </footer>

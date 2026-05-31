@@ -7,8 +7,18 @@ import { useState } from "react";
 const links = [
   { href: "/", label: "Home" },
   { href: "/search", label: "Search" },
+  { href: "/advanced-search", label: "Advanced" },
+  { href: "/years", label: "Years" },
   { href: "/leaderboards", label: "Leaderboards" },
+  { href: "/countries", label: "Countries" },
+  { href: "/clubs", label: "Clubs" },
   { href: "/stats", label: "Stats" },
+  { href: "/insights", label: "Insights" },
+  { href: "/records", label: "Records" },
+  { href: "/explore", label: "Explore" },
+  { href: "/compare", label: "Compare" },
+  { href: "/notable-runners", label: "Notable" },
+  { href: "/resources", label: "Resources" },
 ];
 
 export default function Navbar() {
